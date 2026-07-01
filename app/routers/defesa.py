@@ -1,8 +1,13 @@
 """Geração da contestação a partir da petição inicial."""
+import io
+
 from fastapi import APIRouter, File, UploadFile
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from app.services import generate
 from app.services.anthropic_service import gerar
+from app.services.docx_service import gerar_docx
 from app.services.extract import extrair
 from app.services.search import buscar_defesas_parecidas
 from app.supabase_client import get_supabase
@@ -12,20 +17,16 @@ router = APIRouter(prefix="/api/defesa", tags=["defesa"])
 
 @router.post("/gerar")
 async def gerar_defesa(file: UploadFile = File(...)):
-    # 1. extrai texto da inicial
     data = await file.read()
     inicial = extrair(file.filename, data)
 
-    # 2. busca defesas parecidas na memória jurídica
     refs = await buscar_defesas_parecidas(inicial, k=3, tipo="contestacao")
 
-    # 3. gera contestação com Claude
     res = await gerar(
         system=generate.SYSTEM_CONTESTACAO,
         prompt=generate.prompt_contestacao(inicial, refs),
     )
 
-    # 4. persiste processo + peça
     sb = get_supabase()
     proc = sb.table("processos").insert({"inicial_texto": inicial}).execute()
     processo_id = proc.data[0]["id"]
@@ -52,3 +53,20 @@ async def gerar_defesa(file: UploadFile = File(...)):
             {"titulo": r["titulo"], "similaridade": r["similaridade"]} for r in refs
         ],
     }
+
+
+class DocxRequest(BaseModel):
+    conteudo: str
+    titulo: str | None = "Contestação"
+
+
+@router.post("/docx")
+async def baixar_docx(body: DocxRequest):
+    """Gera o .docx com timbre a partir do texto da peça."""
+    dados = gerar_docx(body.conteudo, body.titulo)
+    nome = (body.titulo or "peca").lower().replace(" ", "-") + ".docx"
+    return StreamingResponse(
+        io.BytesIO(dados),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
