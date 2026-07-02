@@ -2,7 +2,7 @@
 from fastapi import APIRouter, File, Form, UploadFile
 
 from app.services.extract import extrair
-from app.services.voyage_service import embed_one
+from app.services.gemini_service import embed_one
 from app.supabase_client import get_supabase
 
 router = APIRouter(prefix="/api/memoria", tags=["memoria"])
