@@ -1,5 +1,5 @@
-"""Busca semântica das defesas mais parecidas (memória jurídica)."""
-from app.services.voyage_service import embed_one
+"""Busca semântica de defesas parecidas via embedding + pgvector."""
+from app.services.gemini_service import embed_one
 from app.supabase_client import get_supabase
 
 
