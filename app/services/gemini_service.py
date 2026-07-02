@@ -12,6 +12,12 @@ _TASK_TYPE = {
     "query": "RETRIEVAL_QUERY",
 }
 
+# gemini-embedding-001 aceita ~2048 tokens por chamada (~6000 caracteres em
+# português). Cortamos aqui para não estourar o limite em documentos longos —
+# o texto completo continua sendo salvo no banco normalmente, só o embedding
+# usa um recorte representativo.
+MAX_CHARS = 6000
+
 
 def _normalize(vec: list[float]) -> list[float]:
     """Gemini não normaliza sozinho quando a dimensão != 3072."""
@@ -30,11 +36,12 @@ async def embed(texts: list[str], input_type: str = "document") -> list[list[flo
     resultados = []
     async with httpx.AsyncClient(timeout=60) as client:
         for texto in texts:
+            texto_cortado = texto[:MAX_CHARS]
             resp = await client.post(
                 url,
                 params={"key": s.GEMINI_API_KEY},
                 json={
-                    "content": {"parts": [{"text": texto}]},
+                    "content": {"parts": [{"text": texto_cortado}]},
                     "task_type": task_type,
                     "output_dimensionality": 1024,
                 },
