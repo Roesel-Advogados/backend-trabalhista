@@ -1,5 +1,5 @@
 """Geração de texto via Claude (Anthropic)."""
-from anthropic import AsyncAnthropic
+from anthropic import AsyncAnthropic, APIStatusError
 
 from app.config import get_settings
 
@@ -16,12 +16,19 @@ def _client() -> AsyncAnthropic:
 async def gerar(system: str, prompt: str, max_tokens: int = 8000) -> dict:
     """Retorna {'texto', 'custo_usd', 'modelo'}."""
     s = get_settings()
-    msg = await _client().messages.create(
-        model=s.ANTHROPIC_MODEL,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    print(f"[anthropic_service] modelo={s.ANTHROPIC_MODEL!r} max_tokens={max_tokens} "
+          f"len(system)={len(system)} len(prompt)={len(prompt)}")
+    try:
+        msg = await _client().messages.create(
+            model=s.ANTHROPIC_MODEL,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except APIStatusError as e:
+        print(f"[anthropic_service] ERRO DA ANTHROPIC: status={e.status_code} "
+              f"body={e.response.text}")
+        raise
     texto = "".join(b.text for b in msg.content if b.type == "text")
     custo = msg.usage.input_tokens * PRECO_INPUT + msg.usage.output_tokens * PRECO_OUTPUT
     return {"texto": texto, "custo_usd": round(custo, 4), "modelo": s.ANTHROPIC_MODEL}
