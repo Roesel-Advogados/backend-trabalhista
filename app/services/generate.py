@@ -7,6 +7,13 @@ recorrentes. Os modelos semelhantes recuperados da memória jurídica entram
 como few-shot no prompt de usuário (prompt_contestacao).
 """
 
+# Limites de truncamento para controlar o tamanho (e custo) do prompt.
+# Petições e defesas de referência às vezes trazem blocos enormes de
+# jurisprudência colada; cortamos para manter só o essencial (fatos,
+# pedidos, estrutura) sem estourar o prompt.
+MAX_CHARS_INICIAL = 40_000
+MAX_CHARS_REFERENCIA = 12_000
+
 SYSTEM_CONTESTACAO = (
     "Você é advogado(a) trabalhista do escritório ROESEL ADVOGADOS, "
     "especialista na defesa do RECLAMADO (empresa). Sua função é redigir a "
@@ -103,26 +110,37 @@ SYSTEM_RECURSO = (
 )
 
 
+def _truncar(texto: str, limite: int) -> str:
+    """Corta o texto no limite de caracteres, avisando que foi truncado.
+    Evita estourar o prompt com documentos muito longos (petições com
+    jurisprudência colada, defesas de referência extensas etc.)."""
+    if len(texto) <= limite:
+        return texto
+    return texto[:limite] + "\n\n[...texto truncado por tamanho...]"
+
+
 def _bloco_referencias(refs: list[dict]) -> str:
     if not refs:
         return "(Nenhuma defesa de referência encontrada na memória.)"
     partes = []
     for i, r in enumerate(refs, 1):
         sim = r.get("similaridade", 0)
+        conteudo = _truncar(r.get("conteudo", ""), MAX_CHARS_REFERENCIA)
         partes.append(
             f"### Modelo {i} — {r.get('titulo','(sem título)')} "
-            f"(similaridade {sim:.2f})\n{r.get('conteudo','')}"
+            f"(similaridade {sim:.2f})\n{conteudo}"
         )
     return "\n\n".join(partes)
 
 
 def prompt_contestacao(inicial: str, refs: list[dict]) -> str:
+    inicial_truncada = _truncar(inicial, MAX_CHARS_INICIAL)
     return (
         "Gere a CONTESTAÇÃO para a petição inicial abaixo, seguindo RIGOROSAMENTE "
         "o estilo, a estrutura e o vocabulário do escritório (definidos no "
         "system) e espelhando as teses dos modelos de referência que forem "
         "pertinentes ao caso.\n\n"
-        f"## PETIÇÃO INICIAL (reclamante)\n{inicial}\n\n"
+        f"## PETIÇÃO INICIAL (reclamante)\n{inicial_truncada}\n\n"
         f"## MODELOS DE REFERÊNCIA DO ESCRITÓRIO (few-shot de estilo)\n"
         f"{_bloco_referencias(refs)}\n\n"
         "## TAREFA\n"
@@ -142,10 +160,11 @@ def prompt_contestacao(inicial: str, refs: list[dict]) -> str:
 
 
 def prompt_recurso(sentenca: str, refs: list[dict]) -> str:
+    sentenca_truncada = _truncar(sentenca, MAX_CHARS_INICIAL)
     return (
         "Gere o RECURSO ORDINÁRIO contra a sentença abaixo, no estilo do "
         "escritório.\n\n"
-        f"## SENTENÇA\n{sentenca}\n\n"
+        f"## SENTENÇA\n{sentenca_truncada}\n\n"
         f"## MODELOS DE REFERÊNCIA\n{_bloco_referencias(refs)}\n\n"
         "## TAREFA\nRedija razões recursais completas: tempestividade, "
         "preparo, e impugnação fundamentada de cada capítulo desfavorável. "
