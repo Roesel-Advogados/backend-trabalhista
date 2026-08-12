@@ -15,16 +15,28 @@ from app.supabase_client import get_supabase
 router = APIRouter(prefix="/api/defesa", tags=["defesa"])
 
 
+def _sanitizar(texto: str) -> str:
+    """Remove caracteres nulos (\\x00) e afins que o Postgres/JSON não aceita
+    em colunas de texto. PDFs escaneados/assinados digitalmente às vezes
+    trazem esses bytes na extração."""
+    if not texto:
+        return texto
+    return texto.replace("\x00", "")
+
+
 async def _gerar_a_partir_do_texto(inicial: str):
     """Lógica central de geração: busca referências, chama o modelo,
     grava processo + peça no banco. Usada tanto pelo upload direto
     quanto pelo fluxo via Supabase Storage."""
+    inicial = _sanitizar(inicial)
+
     refs = await buscar_defesas_parecidas(inicial, k=3, tipo="contestacao")
 
     res = await gerar(
         system=generate.SYSTEM_CONTESTACAO,
         prompt=generate.prompt_contestacao(inicial, refs),
     )
+    texto_gerado = _sanitizar(res["texto"])
 
     sb = get_supabase()
     proc = sb.table("processos").insert({"inicial_texto": inicial}).execute()
@@ -35,7 +47,7 @@ async def _gerar_a_partir_do_texto(inicial: str):
             {
                 "processo_id": processo_id,
                 "tipo": "contestacao",
-                "conteudo": res["texto"],
+                "conteudo": texto_gerado,
                 "modelo_usado": res["modelo"],
                 "custo_usd": res["custo_usd"],
             }
@@ -46,7 +58,7 @@ async def _gerar_a_partir_do_texto(inicial: str):
     return {
         "processo_id": processo_id,
         "peca_id": peca.data[0]["id"],
-        "conteudo": res["texto"],
+        "conteudo": texto_gerado,
         "custo_usd": res["custo_usd"],
         "referencias_usadas": [
             {"titulo": r["titulo"], "similaridade": r["similaridade"]} for r in refs
