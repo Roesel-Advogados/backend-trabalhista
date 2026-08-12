@@ -93,6 +93,28 @@ async def gerar_defesa_storage(body: GerarFromStorageBody):
     return await _gerar_a_partir_do_texto(inicial)
 
 
+class SignedUrlBody(BaseModel):
+    filename: str
+    bucket: str = "referencia"
+    pasta: str = "iniciais"
+
+
+@router.post("/upload-url")
+async def gerar_url_upload(body: SignedUrlBody):
+    """Gera uma URL assinada para o FRONTEND subir a petição inicial
+    diretamente pro Supabase Storage, sem passar pelo limite de 4.5MB
+    da Vercel."""
+    sb = get_supabase()
+    path = f"{body.pasta}/{body.filename}"
+    resultado = sb.storage.from_(body.bucket).create_signed_upload_url(path)
+    signed_url = (
+        resultado.get("signed_url")
+        or resultado.get("signedURL")
+        or resultado.get("url")
+    )
+    return {"signedUrl": signed_url, "path": path, "bucket": body.bucket}
+
+
 class DocxRequest(BaseModel):
     conteudo: str
     titulo: str | None = "Contestação"
