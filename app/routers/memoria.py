@@ -1,4 +1,7 @@
 """Memória jurídica: admin envia defesas anteriores -> extrai, embeda, indexa."""
+import re
+import unicodedata
+
 from fastapi import APIRouter, File, Form, UploadFile
 from pydantic import BaseModel
 
@@ -7,6 +10,15 @@ from app.services.gemini_service import embed_one
 from app.supabase_client import get_supabase
 
 router = APIRouter(prefix="/api/memoria", tags=["memoria"])
+
+
+def _sanitizar_nome_arquivo(nome: str) -> str:
+    """Remove acentos e caracteres especiais do nome do arquivo, deixando
+    só letras, números, ponto, hífen e underscore — o Supabase Storage
+    rejeita chaves com acentos/caracteres especiais."""
+    nome = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode("ascii")
+    nome = re.sub(r"[^\w.\-]", "_", nome)
+    return nome
 
 
 @router.post("/upload")
@@ -80,7 +92,8 @@ async def gerar_url_upload(body: SignedUrlBody):
     O frontend deve: 1) chamar este endpoint, 2) fazer PUT do arquivo
     na signedUrl retornada, 3) chamar /upload-from-storage com o path."""
     sb = get_supabase()
-    path = f"{body.pasta}/{body.filename}"
+    nome_limpo = _sanitizar_nome_arquivo(body.filename)
+    path = f"{body.pasta}/{nome_limpo}"
     resultado = sb.storage.from_(body.bucket).create_signed_upload_url(path)
     signed_url = (
         resultado.get("signed_url")
