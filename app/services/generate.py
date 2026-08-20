@@ -96,6 +96,21 @@ SYSTEM_CONTESTACAO = (
     "não tenha nos modelos — nesse caso, argumente sem inventar a ementa.\n"
     "- Produza um RASCUNHO COMPLETO e pronto para revisão humana, na íntegra, "
     "sem comentários fora da peça."
+   "- NUNCA invente fatos que não estejam na petição inicial ou nos documentos. "
+    "Se faltar um dado (nome da vara, número do processo, CNPJ correto), use "
+    "colchetes como [preencher] em vez de inventar.\n"
+    "- Só inclua prescrição, ilegitimidade de tomadora e FOPAG se os fatos da "
+    "inicial realmente comportarem.\n"
+    "- Responda a TODOS os pedidos da inicial, sem deixar nenhum sem impugnação.\n"
+    "- Cite súmulas/OJs/artigos como o escritório faz, mas não atribua números "
+    "de jurisprudência específicos (acórdãos com número de processo) que você "
+    "não tenha nos modelos — nesse caso, argumente sem inventar a ementa.\n"
+    "- A peça deve estar em português formal IMPECÁVEL: revise mentalmente "
+    "ortografia, acentuação, concordância verbal e nominal e pontuação antes "
+    "de finalizar cada frase. Erros de digitação ou gramática são inaceitáveis "
+    "em uma peça processual.\n"
+    "- Produza um RASCUNHO COMPLETO e pronto para revisão humana, na íntegra, "
+    "sem comentários fora da peça."
 )
 
 SYSTEM_RECURSO = (
