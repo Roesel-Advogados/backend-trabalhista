@@ -2,8 +2,9 @@
 import io
 import re
 import unicodedata
+import uuid
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -114,11 +115,31 @@ class SignedUrlBody(BaseModel):
 async def gerar_url_upload(body: SignedUrlBody):
     """Gera uma URL assinada para o FRONTEND subir a petição inicial
     diretamente pro Supabase Storage, sem passar pelo limite de 4.5MB
-    da Vercel."""
+    da Vercel.
+
+    O path inclui um prefixo único (uuid curto) para evitar colisão com
+    arquivos já existentes no bucket — o Supabase Storage retorna 400 ao
+    tentar criar uma signed upload URL para uma chave que já existe, e
+    reenviar o mesmo arquivo (ex: reteste do mesmo caso) sempre batia
+    nesse erro.
+    """
     sb = get_supabase()
     nome_limpo = _sanitizar_nome_arquivo(body.filename)
-    path = f"{body.pasta}/{nome_limpo}"
-    resultado = sb.storage.from_(body.bucket).create_signed_upload_url(path)
+    prefixo = uuid.uuid4().hex[:8]
+    path = f"{body.pasta}/{prefixo}_{nome_limpo}"
+
+    try:
+        resultado = sb.storage.from_(body.bucket).create_signed_upload_url(path)
+    except Exception as exc:
+        # Antes esse erro subia cru e virava um 500 com corpo vazio no
+        # frontend, sem nenhuma pista de causa. Agora o detalhe do erro
+        # do Supabase Storage (ex: bucket não existe, política de acesso,
+        # etc.) vai junto na resposta.
+        raise HTTPException(
+            status_code=502,
+            detail=f"Falha ao gerar signed URL no Supabase Storage: {exc}",
+        )
+
     signed_url = (
         resultado.get("signed_url")
         or resultado.get("signedURL")
