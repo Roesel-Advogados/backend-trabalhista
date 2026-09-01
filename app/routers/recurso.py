@@ -1,9 +1,9 @@
 """Geração do Recurso Ordinário a partir da sentença desfavorável."""
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.services import generate
 from app.services.anthropic_service import gerar
-from app.services.extract import extrair
+from app.services.extract import ErroDocumento, extrair
 from app.services.search import buscar_defesas_parecidas
 from app.supabase_client import get_supabase
 
@@ -16,7 +16,10 @@ async def gerar_recurso(
     processo_id: str | None = Form(None),
 ):
     data = await file.read()
-    sentenca = extrair(file.filename, data)
+    try:
+        sentenca = extrair(file.filename, data)
+    except ErroDocumento as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     refs = await buscar_defesas_parecidas(sentenca, k=3, tipo="recurso")
     res = await gerar(

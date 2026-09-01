@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from app.services import generate
 from app.services.anthropic_service import gerar
 from app.services.docx_service import gerar_docx
-from app.services.extract import extrair
+from app.services.extract import ErroDocumento, extrair
 from app.services.search import buscar_defesas_parecidas
 from app.supabase_client import get_supabase
 
@@ -84,7 +84,10 @@ async def gerar_defesa(file: UploadFile = File(...)):
     arquivos até ~4.5 MB (limite de payload da Vercel). Para arquivos
     maiores, use /gerar-from-storage."""
     data = await file.read()
-    inicial = extrair(file.filename, data)
+    try:
+        inicial = extrair(file.filename, data)
+    except ErroDocumento as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return await _gerar_a_partir_do_texto(inicial)
 
 
@@ -101,7 +104,10 @@ async def gerar_defesa_storage(body: GerarFromStorageBody):
     /api/memoria/upload-from-storage."""
     sb = get_supabase()
     data = sb.storage.from_(body.bucket).download(body.path)
-    inicial = extrair(body.path, data)
+    try:
+        inicial = extrair(body.path, data)
+    except ErroDocumento as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return await _gerar_a_partir_do_texto(inicial)
 
 

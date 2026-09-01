@@ -1,11 +1,12 @@
 """Memória jurídica: admin envia defesas anteriores -> extrai, embeda, indexa."""
 import re
 import unicodedata
+import uuid
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.services.extract import extrair
+from app.services.extract import ErroDocumento, extrair
 from app.services.gemini_service import embed_one
 from app.supabase_client import get_supabase
 
@@ -28,7 +29,10 @@ async def upload_referencia(
     titulo: str | None = Form(None),
 ):
     data = await file.read()
-    conteudo = extrair(file.filename, data)
+    try:
+        conteudo = extrair(file.filename, data)
+    except ErroDocumento as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     embedding = await embed_one(conteudo, input_type="document")
 
     sb = get_supabase()
@@ -61,7 +65,10 @@ async def upload_referencia_storage(body: UploadStorageBody):
     grandes que não cabem no limite de payload da Vercel (4.5 MB)."""
     sb = get_supabase()
     data = sb.storage.from_(body.bucket).download(body.path)
-    conteudo = extrair(body.path, data)
+    try:
+        conteudo = extrair(body.path, data)
+    except ErroDocumento as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     embedding = await embed_one(conteudo, input_type="document")
 
     row = (
@@ -93,8 +100,15 @@ async def gerar_url_upload(body: SignedUrlBody):
     na signedUrl retornada, 3) chamar /upload-from-storage com o path."""
     sb = get_supabase()
     nome_limpo = _sanitizar_nome_arquivo(body.filename)
-    path = f"{body.pasta}/{nome_limpo}"
-    resultado = sb.storage.from_(body.bucket).create_signed_upload_url(path)
+    prefixo = uuid.uuid4().hex[:8]
+    path = f"{body.pasta}/{prefixo}_{nome_limpo}"
+    try:
+        resultado = sb.storage.from_(body.bucket).create_signed_upload_url(path)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Falha ao gerar signed URL no Supabase Storage: {exc}",
+        )
     signed_url = (
         resultado.get("signed_url")
         or resultado.get("signedURL")
