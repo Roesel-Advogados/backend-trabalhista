@@ -9,9 +9,16 @@ settings = get_settings()
 
 app = FastAPI(title="DefesaAI API", version="0.1.0")
 
+_cors_origins = {
+    "http://localhost:3000",
+    "https://defesaai.vercel.app",
+    settings.FRONTEND_ORIGIN.rstrip("/") if settings.FRONTEND_ORIGIN else "",
+}
+_cors_origins.discard("")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=sorted(_cors_origins),
     allow_origin_regex=r"https://.*\.vercel\.app",
     allow_methods=["*"],
     allow_headers=["*"],
