@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app.services import generate
 from app.services.anthropic_service import gerar
+from app.services.generate import limpar_saida
 from app.services.docx_service import gerar_docx
 from app.services.extract import ErroDocumento, extrair
 from app.services.search import buscar_defesas_parecidas
@@ -48,7 +49,7 @@ async def _gerar_a_partir_do_texto(inicial: str):
         system=generate.SYSTEM_CONTESTACAO,
         prompt=generate.prompt_contestacao(inicial, refs),
     )
-    texto_gerado = _sanitizar(res["texto"])
+    texto_gerado = limpar_saida(_sanitizar(res["texto"]))
 
     sb = get_supabase()
     proc = sb.table("processos").insert({"inicial_texto": inicial}).execute()

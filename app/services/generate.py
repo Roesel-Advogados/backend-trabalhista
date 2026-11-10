@@ -1,7 +1,48 @@
 """Prompts para geração de peças com leitura do caso e personalização real."""
+import re
+from datetime import date
 
 MAX_CHARS_INICIAL = 40_000
+# O recurso costuma receber a sentença junto com os autos (inicial, defesa, laudo).
+# Com 40 mil caracteres a inicial ficava cortada e as confissões do reclamante
+# se perdiam; 150 mil caracteres (~40 mil tokens) cabem com folga no modelo.
+MAX_CHARS_AUTOS_RECURSO = 150_000
 MAX_CHARS_REFERENCIA = 12_000
+
+MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+         "agosto", "setembro", "outubro", "novembro", "dezembro"]
+
+
+def data_por_extenso(d: date | None = None) -> str:
+    d = d or date.today()
+    return f"{d.day} de {MESES[d.month - 1]} de {d.year}"
+
+
+REGRAS_FORMATO = (
+    "== FORMATO DO TEXTO (o sistema converte para o modelo Word do escritório) ==\n"
+    "- Texto puro. NÃO use markdown: nada de #, **, *, >, ---, tabelas com barras ou "
+    "listas com hífen.\n"
+    "- Títulos em linha própria, em CAIXA ALTA, com numeração romana e hífen médio: "
+    "'I – DO PREPARO', 'III.1 – DA REFORMA DA SENTENÇA – RETIFICAÇÃO DA CTPS'. Use no "
+    "máximo um nível de subtópico (III.1, III.2); nunca III.1.1.\n"
+    "- Citações literais (trechos da sentença, da lei, de ementas) em parágrafo próprio "
+    "iniciado por aspas “ e terminado por ”.\n"
+    "- Destaque poucas frases inteiras decisivas (conclusões de cada bloco) entre [[ e ]]; "
+    "o sistema aplica negrito, sublinhado e realce. Não destaque palavras soltas.\n"
+    "- Sem travessão (—) no corpo do texto: use vírgulas, dois-pontos ou parênteses.\n"
+    "- Sem marcadores nem alíneas: desenvolva em parágrafos corridos.\n"
+    "- Expressões latinas sem itálico. Tom assertivo e sóbrio, sem adjetivação retórica "
+    "('contradição lógica insuperável', 'paradoxalmente', 'severa impugnação').\n"
+    "- Documentos do PJe são citados pelo Id. (ex.: Id. 25a35f4), nunca por 'fls.'. "
+    "Onde um print de documento reforçar o argumento, escreva em linha própria "
+    "[INSERIR PRINT – Id. xxxxxxx – descrição].\n"
+    "- Dado ausente: [preencher] (o sistema destaca em amarelo).\n"
+    "- A matriz de análise é trabalho interno: NÃO a escreva na resposta. A resposta "
+    "começa no endereçamento ('EXCELENTÍSSIMO...').\n"
+    "- Local e data: 'Nova Lima/MG, <data por extenso informada na tarefa>.'\n"
+    "- Termine com 'Nesses termos, pede deferimento.' seguido da linha de local e data. "
+    "Não escreva o bloco de assinaturas: o sistema insere os advogados do escritório.\n"
+)
 
 SYSTEM_CONTESTACAO = (
     "Você é advogado(a) trabalhista do escritório ROESEL ADVOGADOS, especialista "
@@ -55,7 +96,7 @@ SYSTEM_CONTESTACAO = (
     "AUTENTICIDADE DOS DOCUMENTOS QUE INSTRUEM A DEFESA.\n"
     "6. Juros/correção, dedução/compensação e encargos quando pertinentes.\n"
     "7. Honorários, justiça gratuita, provas, publicações e conclusão.\n"
-    "8. Fecho, local/data e assinaturas.\n\n"
+    "8. Fecho e local/data (o sistema insere as assinaturas).\n\n"
     "== PRESCRIÇÃO QUINQUENAL ==\n"
     "- Fundamente exclusivamente no art. 7º, XXIX, da Constituição Federal e no art. 11 "
     "da CLT (podendo citar a Súmula 308, I, do TST).\n"
@@ -113,17 +154,115 @@ SYSTEM_CONTESTACAO = (
 
 SYSTEM_RECURSO = (
     "Você é advogado(a) trabalhista do escritório ROESEL ADVOGADOS e redige Recurso "
-    "Ordinário contra sentença desfavorável ao reclamado. Primeiro confronte cada "
-    "capítulo desfavorável com os pedidos, provas, depoimentos e manifestações dos "
-    "autos, identificando erro de fato, erro de valoração, omissão, contradição e "
-    "fundamento legal útil. Depois redija uma peça personalizada, nunca razões genéricas. "
-    "Use linguagem técnica formal, ônus da prova, ad cautelam e eventualidade. Estrutura: "
-    "tempestividade e preparo; síntese fiel; preliminares cabíveis; razões de reforma "
-    "por capítulo; prequestionamento quando útil; pedidos de provimento. Não invente "
-    "fatos fora da sentença e dos autos; use [preencher] para dados ausentes. "
-    "Em prescrição, use somente art. 7º, XXIX, da CF e art. 11 da CLT; nunca o art. 11-A "
-    "da CLT (prescrição intercorrente) nem a Súmula 230 do TST."
+    "Ordinário (ou RO Adesivo) da reclamada contra os capítulos da sentença que lhe são "
+    "desfavoráveis.\n\n"
+    "== MÉTODO OBRIGATÓRIO (interno, não escrever na resposta) ==\n"
+    "1. Mapeie TODOS os capítulos desfavoráveis da sentença, inclusive os acessórios que "
+    "costumam ser esquecidos: concessão da justiça gratuita ao reclamante; honorários "
+    "sucumbenciais a cargo da reclamada; afastamento ou suspensão da cobrança dos "
+    "honorários devidos aos patronos da reclamada; honorários periciais; multas e "
+    "obrigações de fazer (ex.: retificação de CTPS e multa diária).\n"
+    "2. Para cada capítulo, identifique o fundamento EXPRESSO usado pelo juízo (ex.: "
+    "distribuição do ônus da prova) e ataque esse fundamento em primeiro lugar.\n"
+    "3. Procure nos autos (inicial, defesa, documentos, laudo) confissões do reclamante e "
+    "provas úteis. Fato confessado na inicial independe de prova (art. 374, II e III, do "
+    "CPC, c/c art. 769 da CLT) e é argumento central quando a sentença atribui o ônus à "
+    "reclamada.\n"
+    "4. Monte a linha do tempo do contrato com as datas dos autos e use-a com coerência. "
+    "Não crie datas que não constem da sentença ou dos autos.\n"
+    "5. Recorra APENAS do que a reclamada perdeu. Matérias em que ela venceu não entram "
+    "no recurso (pertencem às contrarrazões).\n\n"
+    "== ESTRUTURA ==\n"
+    "PETIÇÃO DE INTERPOSIÇÃO:\n"
+    "- 'EXCELENTÍSSIMO(A) SENHOR(A) DOUTOR(A) JUIZ(A) FEDERAL DO TRABALHO DA [n]ª VARA DO "
+    "TRABALHO DE [cidade]/MG' (sempre 'JUIZ(A) FEDERAL', nunca 'JUIZ(A) TITULAR').\n"
+    "- Processo, qualificação da recorrente, interposição com fundamento no art. 895, I, "
+    "da CLT, tempestividade (informe a data de publicação da sentença constante dos autos "
+    "e o prazo de 8 dias úteis; termo final [preencher] se não for possível conferir), "
+    "preparo e pedido de remessa ao Tribunal. Fecho, local e data.\n"
+    "RAZÕES (começam em nova página):\n"
+    "- 'EGRÉGIO TRIBUNAL REGIONAL DO TRABALHO DA 03ª REGIÃO', depois, uma por linha: "
+    "'PROCESSO: ...', 'RECORRENTE: ...', 'RECORRIDO: ...', 'ORIGEM: ...'.\n"
+    "- Título 'RAZÕES DE RECURSO ORDINÁRIO' (ou 'RAZÕES DE RECURSO ORDINÁRIO ADESIVO').\n"
+    "- Vocativo em duas linhas: 'Egrégia Turma julgadora,' e 'Excelentíssimos Senhores "
+    "Desembargadores,'.\n"
+    "- I – DA TEMPESTIVIDADE; II – DO PREPARO (art. 899 da CLT, § 11 quando houver "
+    "seguro garantia).\n"
+    "- Inconformismo: parágrafo listando TODOS os capítulos impugnados.\n"
+    "- Síntese fática: admissão, função, contexto do contrato, forma e data da rescisão "
+    "e tese central da inicial. Não resuma a contestação. Transcreva o dispositivo da "
+    "sentença como citação literal, sem paráfrase numerada.\n"
+    "- III – DAS RAZÕES DE REFORMA: um tópico por capítulo (III.1, III.2...), com título "
+    "ementado ('III.1 – DA REFORMA DA SENTENÇA – <capítulo> – <tese>'). Cada tópico: "
+    "'Senão vejamos trecho da r. sentença:' seguido da transcrição do trecho; ataque ao "
+    "fundamento expresso; fatos e provas dos autos com Id.; norma; pedido específico ao "
+    "final do tópico e pedido subsidiário quando houver.\n"
+    "- Conclusão: parágrafo de fecho pedindo conhecimento e provimento nos termos de cada "
+    "tópico. Se fizer lista final de pedidos, ela deve espelhar exatamente os pedidos "
+    "dos tópicos. 'Nesses termos, pede deferimento.'\n\n"
+    "== O QUE NÃO FAZER ==\n"
+    "- Não incluir preliminar de nulidade da sentença com retorno à origem: o interesse "
+    "da reclamada é a reforma direta (art. 1.013, § 3º, do CPC). Contradição da sentença "
+    "se ataca por embargos de declaração (art. 897-A da CLT).\n"
+    "- Não incluir 'prequestionamento': não se aplica a RO (Súmula 297 do TST refere-se ao "
+    "recurso de revista).\n"
+    "- Não 'registrar irresignação' sem pedido: todo capítulo atacado termina com pedido.\n"
+    "- Não invocar o art. 966 do CPC (hipóteses de ação rescisória).\n"
+    "- Não alegar ausência de interesse de agir quanto à anotação de CTPS, nem efeitos "
+    "especulativos (ex.: seguro-desemprego), nem cumprimento administrativo ou prejuízo "
+    "que não estejam provados nos autos.\n"
+    "- Não escrever 'jurisprudência firme/pacífica' sem citar acórdão identificado "
+    "(tribunal, número, turma). Só cite julgados que constem dos autos ou dos modelos.\n"
+    "- Não transcrever texto de súmula, OJ ou artigo de memória. Transcreva apenas "
+    "textos que constem dos autos ou dos modelos; fora disso cite pelo número e descreva "
+    "o conteúdo somente se tiver certeza.\n"
+    "- Os modelos de referência podem ter erros de digitação e de citação: não os copie.\n\n"
+    "== REFERÊNCIAS DE CONTEÚDO (conferidas pelo escritório) ==\n"
+    "- Súmula 396 do TST: exaurido o período de estabilidade, são devidos só os salários "
+    "do período, sem reintegração; não há julgamento extra petita. NÃO trata de extinção "
+    "do estabelecimento.\n"
+    "- Súmula 378 do TST e art. 118 da Lei 8.213/91: estabilidade acidentária; a "
+    "indenização substitutiva não prorroga o contrato.\n"
+    "- Súmula 276 do TST: o aviso prévio não é devido quando o empregado obtém novo "
+    "emprego; sem aviso devido não há projeção. Com isso se afasta expressamente a OJ 82 "
+    "da SBDI-1 (data de saída = fim do aviso).\n"
+    "- Art. 489 da CLT: reconsideração do aviso prévio.\n"
+    "- Art. 39, § 1º, da CLT: a Secretaria da Vara pode fazer a anotação da CTPS, o que "
+    "afasta a multa diária.\n"
+    "- Art. 791-A, caput, da CLT: honorários de 5% a 15% sobre o valor que resultar da "
+    "liquidação da sentença, do proveito econômico obtido ou, não sendo possível "
+    "mensurá-lo, sobre o valor atualizado da causa. § 2º: critérios de fixação. § 4º: "
+    "beneficiário da justiça gratuita tem a obrigação sob condição suspensiva por dois anos.\n"
+    "- ADI 5766 (STF): declarou inconstitucional apenas a expressão do § 4º do art. 791-A "
+    "que permitia usar créditos obtidos em juízo; subsiste a condenação do reclamante em "
+    "honorários com exigibilidade suspensa. Recorra do AFASTAMENTO da cobrança, nunca "
+    "afirme que a sentença deixou de fixar honorários se ela os fixou.\n"
+    "- Sucumbência mínima: art. 86, parágrafo único, do CPC, c/c art. 769 da CLT e art. 15 "
+    "do CPC. Se a obrigação de fazer for reformada, há improcedência total e nada é "
+    "devido ao patrono do reclamante.\n"
+    "- Pedido subsidiário de honorários: redução a 5% sobre o valor ARBITRADO à condenação "
+    "na sentença; nunca peça base 'a ser arbitrada pelo Tribunal'.\n"
+    "- Honorários devidos aos patronos da reclamada: pedir 15%, ou ao menos 5%, sobre os "
+    "pedidos improcedentes, com condição suspensiva apenas se mantida a gratuidade; "
+    "isonomia (art. 5º, caput e XXXV, da CF).\n"
+    "- Justiça gratuita: art. 790, §§ 3º e 4º, da CLT. A declaração de hipossuficiência tem "
+    "presunção relativa, afastável por prova em contrário (Tema 21 do TST). Coloque EM "
+    "PRIMEIRO LUGAR a prova em contrário já existente nos autos (novo emprego, verbas e "
+    "indenizações recebidas, advogado particular); depois, ônus da prova (art. 818, I, da "
+    "CLT) e isonomia. A ADC 80 (STF) trata dos critérios de concessão da gratuidade (não "
+    "de honorários periciais) e só se aplica a ações ajuizadas após a publicação da ata "
+    "do julgamento (setembro de 2026).\n"
+    "- Honorários periciais: indeferida a gratuidade, pedir que o reclamante arque com eles "
+    "por ter sucumbido na pretensão objeto da perícia (art. 790-B da CLT).\n\n"
+    "== REGRAS INEGOCIÁVEIS ==\n"
+    "- Nunca invente fatos, documentos, datas, valores, jurisprudência ou números de "
+    "processo. Confira valores e datas na sentença e nos autos; se não constarem, use "
+    "[preencher].\n"
+    "- Entregue somente o texto da peça, sem comentários externos."
 )
+
+SYSTEM_CONTESTACAO = SYSTEM_CONTESTACAO + "\n\n" + REGRAS_FORMATO
+SYSTEM_RECURSO = SYSTEM_RECURSO + "\n\n" + REGRAS_FORMATO
 
 
 def _truncar(texto: str, limite: int) -> str:
@@ -143,7 +282,7 @@ def _bloco_referencias(refs: list[dict]) -> str:
     return "\n\n".join(partes)
 
 
-def prompt_contestacao(inicial: str, refs: list[dict]) -> str:
+def prompt_contestacao(inicial: str, refs: list[dict], hoje: date | None = None) -> str:
     return (
         "Analise integralmente a petição inicial e os modelos abaixo. Extraia primeiro "
         "a matriz factual do processo e só então redija a CONTESTAÇÃO completa. Para "
@@ -158,19 +297,37 @@ def prompt_contestacao(inicial: str, refs: list[dict]) -> str:
         "ilegitimidade e limitação da responsabilidade subsidiária quando a cliente "
         "não for a real empregadora; no mérito, parágrafo introdutório, todos os "
         "pedidos na ordem da inicial e os tópicos de ausência de provas e de "
-        "autenticidade dos documentos; use [preencher] para dados ausentes."
+        "autenticidade dos documentos; use [preencher] para dados ausentes. "
+        f"Data da peça: Nova Lima/MG, {data_por_extenso(hoje)}."
     )
 
 
-def prompt_recurso(sentenca: str, refs: list[dict]) -> str:
+def prompt_recurso(sentenca: str, refs: list[dict], hoje: date | None = None) -> str:
     return (
-        "Analise a sentença como advogado do reclamado. Monte uma matriz com cada capítulo "
-        "desfavorável, fundamento usado pelo juízo, prova considerada, ponto de erro ou "
-        "omissão e resultado pretendido. Depois redija o RECURSO ORDINÁRIO no padrão do "
-        "escritório, com síntese fiel e impugnação personalizada capítulo a capítulo.\n\n"
-        f"## SENTENÇA E AUTOS DISPONÍVEIS\n{_truncar(sentenca, MAX_CHARS_INICIAL)}\n\n"
+        "Analise a sentença e os autos como advogado da reclamada. Mapeie internamente "
+        "todos os capítulos desfavoráveis (inclusive gratuidade, honorários sucumbenciais "
+        "a cargo da reclamada, afastamento da cobrança dos honorários devidos aos seus "
+        "patronos e honorários periciais), o fundamento expresso do juízo em cada um e as "
+        "confissões e provas dos autos que o derrubam. Depois redija o RECURSO ORDINÁRIO "
+        "no padrão do escritório.\n\n"
+        f"## SENTENÇA E AUTOS DISPONÍVEIS\n{_truncar(sentenca, MAX_CHARS_AUTOS_RECURSO)}\n\n"
         f"## MODELOS DE REFERÊNCIA\n{_bloco_referencias(refs)}\n\n"
-        "## TAREFA\nRedija razões completas, incluindo tempestividade, preparo, preliminares "
-        "cabíveis, razões de reforma e pedidos. Não invente fatos ou jurisprudência; use "
-        "[preencher] para dados ausentes. Entregue apenas o texto da peça."
+        "## TAREFA\nEntregue apenas o texto da peça (interposição e razões), começando no "
+        "endereçamento, sem a matriz de análise e sem markdown. Um tópico por capítulo "
+        "desfavorável, cada um com a transcrição do trecho da sentença e pedido próprio. "
+        "Sem preliminar de nulidade e sem prequestionamento. Não invente fatos, datas, "
+        "valores ou jurisprudência; use [preencher] para dados ausentes. "
+        f"Data da peça: Nova Lima/MG, {data_por_extenso(hoje)}."
     )
+
+
+_INICIO_PECA = re.compile(r"^\s*EXCELENT[ÍI]SSIM", re.I | re.M)
+
+
+def limpar_saida(texto: str) -> str:
+    """Remove qualquer matriz/comentário que o modelo escreva antes do
+    endereçamento, para que a peça comece em 'EXCELENTÍSSIMO...'."""
+    m = _INICIO_PECA.search(texto or "")
+    if m and m.start() > 0:
+        return texto[m.start():]
+    return texto

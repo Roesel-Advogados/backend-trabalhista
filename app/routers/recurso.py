@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.services import generate
 from app.services.anthropic_service import gerar
+from app.services.generate import limpar_saida
 from app.services.extract import ErroDocumento, extrair
 from app.services.search import buscar_defesas_parecidas
 from app.supabase_client import get_supabase
@@ -26,10 +27,11 @@ async def _gerar_a_partir_do_texto(sentenca: str, processo_id: str | None = None
         system=generate.SYSTEM_RECURSO,
         prompt=generate.prompt_recurso(sentenca, refs),
     )
+    texto_gerado = limpar_saida(res["texto"].replace("\x00", ""))
 
     sb = get_supabase()
     if not processo_id:
-        proc = sb.table("processos").insert({"inicial_texto": sentenca}).execute()
+        proc = sb.table("processos").insert({"inicial_texto": sentenca.replace("\x00", "")}).execute()
         processo_id = proc.data[0]["id"]
 
     peca = (
@@ -38,7 +40,7 @@ async def _gerar_a_partir_do_texto(sentenca: str, processo_id: str | None = None
             {
                 "processo_id": processo_id,
                 "tipo": "recurso",
-                "conteudo": res["texto"],
+                "conteudo": texto_gerado,
                 "modelo_usado": res["modelo"],
                 "custo_usd": res["custo_usd"],
             }
@@ -48,7 +50,7 @@ async def _gerar_a_partir_do_texto(sentenca: str, processo_id: str | None = None
     return {
         "processo_id": processo_id,
         "peca_id": peca.data[0]["id"],
-        "conteudo": res["texto"],
+        "conteudo": texto_gerado,
         "custo_usd": res["custo_usd"],
     }
 
